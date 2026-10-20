@@ -1,0 +1,762 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Simulador 3D para comparar mundo real, realidad aumentada (HoloLens 2) y realidad virtual (PICO 4 Ultra).">
+<style>
+/* Reset equivalente al que agrega claude.ai al publicar */
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0}
+img{max-width:100%}
+[hidden]{display:none!important}
+</style>
+<title>Simulador RV y RA</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap">
+<style>
+/* Layout: escenario 3D a la izquierda como pieza central, panel de explicación a la derecha; en celular se apilan. Un solo look oscuro, como una sala con el visor puesto. */
+:root{
+  --bg:#0f0b24;
+  --panel:#17113a;
+  --panel-2:#1f1849;
+  --line:#2f2763;
+  --text:#ece9fb;
+  --muted:#a59dcc;
+  --teal:#00d9c0;
+  --violet:#8b5cf6;
+  --amber:#ffb86b;
+  --coral:#ff6b81;
+  --display:"Source Serif 4", Cambria, Georgia, serif;
+  --body:"IBM Plex Sans", Calibri, "Segoe UI", system-ui, sans-serif;
+  --mono:"IBM Plex Mono", ui-monospace, Consolas, monospace;
+  color-scheme:dark;
+}
+html,body{background:var(--bg);color:var(--text)}
+body{font-family:var(--body);font-size:15px;line-height:1.5}
+.app{max-width:1280px;margin:0 auto;padding-block:20px 32px;padding-left:max(16px, env(safe-area-inset-left,0px));padding-right:max(16px, env(safe-area-inset-right,0px));display:grid;gap:18px}
+header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--teal);margin:0}
+h1{font-family:var(--display);font-weight:700;font-size:clamp(26px,3.4vw,38px);line-height:1.1;margin:6px 0 0;text-wrap:balance}
+.modes{display:flex;flex-wrap:wrap;gap:4px;padding:4px;background:var(--panel);border:1px solid var(--line);border-radius:12px}
+.modes button{appearance:none;border:0;background:transparent;color:var(--muted);font:500 14px var(--body);padding:9px 14px;border-radius:9px;cursor:pointer;display:flex;align-items:center;gap:8px}
+.modes button:hover{color:var(--text)}
+.modes button kbd{font:500 11px var(--mono);border:1px solid var(--line);border-radius:4px;padding:1px 5px;color:var(--muted)}
+.modes button[aria-pressed="true"]{background:var(--text);color:var(--bg)}
+.modes button[aria-pressed="true"] kbd{border-color:rgba(15,11,36,.35);color:var(--bg)}
+button:focus-visible,.tool:focus-visible,label.tool:focus-within{outline:2px solid var(--teal);outline-offset:2px}
+
+.main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:18px;align-items:start}
+@media (max-width:920px){.main{grid-template-columns:minmax(0,1fr)}}
+.stage-col{display:grid;gap:10px;min-width:0}
+.stage{position:relative;width:100%;aspect-ratio:16/10;max-height:74vh;border-radius:14px;overflow:hidden;background:#000;border:1px solid var(--line)}
+.stage canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+.stage canvas:active{cursor:grabbing}
+.fade{position:absolute;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity .22s ease}
+.fade.on{opacity:1}
+.fade.quick{transition-duration:.11s}
+.hud{position:absolute;top:12px;left:12px;display:flex;flex-wrap:wrap;gap:6px;pointer-events:none;max-width:calc(100% - 24px)}
+.chip{font:500 12px var(--mono);letter-spacing:.04em;padding:5px 9px;border-radius:999px;background:rgba(10,7,26,.72);border:1px solid rgba(255,255,255,.14);color:var(--text);backdrop-filter:blur(6px)}
+.chip .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:7px;vertical-align:1px;background:var(--amber)}
+.chip.ra .dot{background:var(--teal)}
+.chip.rv .dot{background:var(--violet)}
+.hint{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);font:500 13px var(--body);padding:7px 13px;border-radius:999px;background:rgba(10,7,26,.75);border:1px solid rgba(255,255,255,.14);color:var(--text);pointer-events:none;white-space:nowrap;transition:opacity .4s}
+.hint.gone{opacity:0}
+.lenses{position:absolute;inset:0;display:grid;grid-template-columns:1fr 1fr;pointer-events:none}
+.lenses span{background:radial-gradient(circle closest-side at 50% 50%, transparent 91%, rgba(0,0,0,.97) 100%)}
+.fov{position:absolute;pointer-events:none;border:1px dashed rgba(0,217,192,.75);border-radius:6px;box-shadow:0 0 0 9999px rgba(0,0,0,.12)}
+.visor-label{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);font:500 12px var(--mono);letter-spacing:.03em;padding:6px 11px;border-radius:6px;background:rgba(10,7,26,.8);color:var(--teal);pointer-events:none;white-space:nowrap;max-width:calc(100% - 24px);overflow:hidden;text-overflow:ellipsis}
+.error{position:absolute;inset:0;display:grid;place-items:center;padding:24px;text-align:center;color:var(--muted)}
+
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.tool{appearance:none;display:inline-flex;align-items:center;gap:8px;font:500 13.5px var(--body);color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:8px 12px;cursor:pointer}
+.tool:hover{border-color:var(--muted)}
+.tool:disabled{opacity:.45;cursor:not-allowed}
+.tool .sw{width:28px;height:16px;border-radius:999px;background:var(--line);position:relative;transition:background .2s}
+.tool .sw::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:var(--muted);transition:transform .2s, background .2s}
+.tool[aria-pressed="true"] .sw{background:rgba(0,217,192,.35)}
+.tool[aria-pressed="true"] .sw::after{transform:translateX(12px);background:var(--teal)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.keys{margin-left:auto;font:400 12px var(--mono);color:var(--muted)}
+@media (max-width:620px){.keys{display:none}}
+
+aside{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px;display:grid;gap:18px;min-width:0}
+.mode-name{font-family:var(--display);font-weight:700;font-size:28px;line-height:1.1;margin:2px 0 0;text-wrap:balance}
+.def{margin:10px 0 0;font-family:var(--display);font-style:italic;font-size:16px;line-height:1.45;color:var(--text)}
+.def-src{display:block;margin-top:4px;font:400 12px var(--body);font-style:normal;color:var(--muted)}
+.label{font:500 11.5px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:0 0 6px}
+.see{margin:0;color:var(--text)}
+dl.read{margin:0;display:grid;grid-template-columns:auto 1fr;gap:8px 14px;padding:14px;background:var(--panel-2);border-radius:10px}
+dl.read dt{color:var(--muted);font-size:13px}
+dl.read dd{margin:0;font:500 13px var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+.tip{margin:0;padding:12px 14px;border-left:3px solid var(--teal);background:rgba(0,217,192,.07);border-radius:0 8px 8px 0;font-size:14px}
+.continuum{display:grid;gap:8px}
+.track{position:relative;display:grid;grid-template-columns:repeat(4,1fr);align-items:start}
+.track::before{content:"";position:absolute;left:12.5%;right:12.5%;top:7px;height:2px;background:linear-gradient(90deg,var(--amber),var(--teal),var(--violet))}
+.stop{display:grid;justify-items:center;gap:6px;text-align:center;font-size:11.5px;line-height:1.25;color:var(--muted);position:relative}
+.stop i{width:16px;height:16px;border-radius:50%;background:var(--panel);border:2px solid var(--muted)}
+.stop.on{color:var(--text);font-weight:600}
+.stop.on i{background:var(--teal);border-color:var(--teal);box-shadow:0 0 0 4px rgba(0,217,192,.22)}
+.stop.na{opacity:.55}
+.stop.na i{border-style:dashed}
+.cite{font-size:12px;color:var(--muted);margin:0}
+@media (prefers-reduced-motion: reduce){.fade,.hint,.tool .sw,.tool .sw::after{transition:none}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div>
+      <p class="eyebrow">Interacción Persona-Ordenador · Simulador</p>
+      <h1>Del aula real al mundo virtual</h1>
+    </div>
+    <div class="modes" role="group" aria-label="Modo de visualización">
+      <button id="m-real" data-mode="real" aria-pressed="true"><kbd>1</kbd>Mundo real</button>
+      <button id="m-ra" data-mode="ra" aria-pressed="false"><kbd>2</kbd>Realidad aumentada</button>
+      <button id="m-rv" data-mode="rv" aria-pressed="false"><kbd>3</kbd>Realidad virtual</button>
+    </div>
+  </header>
+
+  <div class="main">
+    <div class="stage-col">
+      <div class="stage" id="stage">
+        <canvas id="scene" aria-label="Escena 3D del simulador"></canvas>
+        <div class="lenses" id="lenses" hidden><span></span><span></span></div>
+        <div class="fov" id="fov" hidden></div>
+        <div class="hud"><span class="chip" id="chip"><span class="dot"></span><span id="chipText">Mundo real · sin dispositivo</span></span><span class="chip" id="chip2" hidden></span></div>
+        <div class="visor-label" id="visorLabel" hidden></div>
+        <div class="hint" id="hint">Arrastrá para mirar alrededor</div>
+        <div class="fade" id="fade"></div>
+      </div>
+      <div class="toolbar">
+        <button class="tool" id="visorBtn" aria-pressed="false" disabled><span class="sw" aria-hidden="true"></span>Vista del visor</button>
+        <label class="tool" for="photo">Usar una foto del aula<input class="sr" id="photo" type="file" accept="image/*"></label>
+        <button class="tool" id="clearPhoto" hidden>Quitar la foto</button>
+        <button class="tool" id="recenter">Recentrar vista</button>
+        <span class="keys">Teclas 1 · 2 · 3 cambian de modo · V activa el visor</span>
+      </div>
+    </div>
+
+    <aside aria-live="polite">
+      <div>
+        <p class="label" id="modeIdx">Modo 1 de 3</p>
+        <h2 class="mode-name" id="modeName">Mundo real</h2>
+        <p class="def" id="modeDef"></p>
+      </div>
+      <div>
+        <p class="label">Qué estás viendo</p>
+        <p class="see" id="modeSee"></p>
+      </div>
+      <dl class="read">
+        <dt>Mundo real visible</dt><dd id="rReal">Sí</dd>
+        <dt>Contenido virtual</dt><dd id="rVirt">Ninguno</dd>
+        <dt>Dispositivo de ejemplo</dt><dd id="rDev">Ninguno</dd>
+        <dt id="rExtraT" hidden>Teletransportes</dt><dd id="rExtra" hidden>0</dd>
+      </dl>
+      <p class="tip" id="modeTip"></p>
+      <div class="continuum">
+        <p class="label">Dónde está en el continuo realidad-virtualidad</p>
+        <div class="track" id="track">
+          <div class="stop" data-i="0"><i></i>Entorno real</div>
+          <div class="stop" data-i="1"><i></i>Realidad aumentada</div>
+          <div class="stop na" data-i="2"><i></i>Virtualidad aumentada</div>
+          <div class="stop" data-i="3"><i></i>Entorno virtual</div>
+        </div>
+        <p class="cite">Modelo de Milgram y Kishino (1994). El punto punteado no se simula aquí.</p>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function () {
+  "use strict";
+  var $ = function (s) { return document.querySelector(s); };
+  var stage = $("#stage"), canvas = $("#scene");
+
+  var MODES = {
+    real: {
+      n: 1, name: "Mundo real",
+      def: "El entorno físico tal como es, sin ningún contenido generado por ordenador.", src: "",
+      see: "Un aula con escritorio, pizarrón, biblioteca y ventana. Es el punto de partida: todo lo que ves existe físicamente.",
+      real: "Sí, completo", virt: "Ninguno", dev: "Ninguno",
+      tip: "Arrastrá sobre la escena para mirar alrededor. Después pasá a Realidad aumentada con la tecla 2.",
+      chip: "Mundo real · sin dispositivo", stop: 0
+    },
+    ra: {
+      n: 2, name: "Realidad aumentada",
+      def: "“Es una combinación de texto y gráficos generados por ordenador con imágenes reales, todo ello en tiempo real.”",
+      src: "Apuntes de la cátedra, Tema 6: Dispositivos para la interacción",
+      see: "El aula sigue ahí y se suman hologramas: un modelo 3D anclado al escritorio, una ruta en el piso hacia la biblioteca y el pizarrón reconocido como superficie. La malla verde del principio muestra cómo el visor escanea la sala con sus cámaras de profundidad.",
+      real: "Sí", virt: "Superpuesto", dev: "HoloLens 2",
+      tip: "Girá la vista: los hologramas no se mueven del escritorio porque están anclados a objetos reales. Activá «Vista del visor» para ver el recuadro donde HoloLens 2 puede dibujar hologramas.",
+      chip: "Realidad aumentada · HoloLens 2", stop: 1
+    },
+    rv: {
+      n: 3, name: "Realidad virtual",
+      def: "Un entorno sensorial generado por ordenador, controlado en tiempo real por las acciones del usuario.", src: "",
+      see: "El aula desaparece por completo y en su lugar hay un paisaje generado por ordenador. PICO 4 Ultra también puede mostrar el entorno con sus cámaras, pero en modo RV lo reemplaza.",
+      real: "No", virt: "Total (inmersión)", dev: "PICO 4 Ultra",
+      tip: "Hacé clic en el suelo para teletransportarte. El fundido a negro imita la técnica que usan las apps de RV para reducir el mareo.",
+      chip: "Realidad virtual · PICO 4 Ultra", stop: 3
+    }
+  };
+
+  function showError(msg) {
+    var d = document.createElement("div");
+    d.className = "error";
+    d.textContent = msg;
+    stage.appendChild(d);
+    $("#hint").hidden = true;
+  }
+
+  if (!window.THREE || !THREE.OrbitControls) {
+    showError("No se pudo cargar el motor 3D. Revisá la conexión a internet y volvé a abrir la página.");
+    return;
+  }
+
+  var renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+  } catch (e) {
+    showError("Este navegador no puede mostrar gráficos 3D (WebGL desactivado). Probá con Chrome, Edge o Firefox actualizados.");
+    return;
+  }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.localClippingEnabled = true;
+
+  var reduceMotion = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var scene = new THREE.Scene();
+  var camera = new THREE.PerspectiveCamera(62, 1.6, 0.05, 260);
+  var HOME = { pos: new THREE.Vector3(0.4, 1.65, 2.3), target: new THREE.Vector3(0, 1.0, -0.9) };
+  camera.position.copy(HOME.pos);
+  var controls = new THREE.OrbitControls(camera, canvas);
+  controls.target.copy(HOME.target);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.enablePan = false;
+  controls.minDistance = 1.2;
+  controls.maxDistance = 3.6;
+  controls.minPolarAngle = 0.35;
+  controls.maxPolarAngle = 1.5;
+  controls.minAzimuthAngle = -1.0;
+  controls.maxAzimuthAngle = 1.0;
+  controls.update();
+
+  // ---------- helpers ----------
+  function mulberry(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; var t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  var rnd = mulberry(11);
+  function std(c, o) { var p = { color: c, roughness: 0.85, metalness: 0 }; if (o) for (var k in o) p[k] = o[k]; return new THREE.MeshStandardMaterial(p); }
+  function box(w, h, d, mat, x, y, z, parent) {
+    var m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true; parent.add(m); return m;
+  }
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+  function easeOut(t) { return 1 - Math.pow(1 - t, 3); }
+  function rr(ctx, x, y, w, h, r) {
+    ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h); ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r); ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
+  }
+  function fmt(n) { return n.toFixed(1).replace(".", ","); }
+
+  // ---------- MUNDO REAL: aula ----------
+  var real = new THREE.Group(); scene.add(real);
+  var RX = 3.5, RZ0 = -2.5, RZ1 = 4, RH = 3;
+
+  function makeWood() {
+    var c = document.createElement("canvas"); c.width = c.height = 512; var g = c.getContext("2d"); var r = mulberry(7);
+    for (var i = 0; i < 8; i++) {
+      var y = i * 64;
+      g.fillStyle = "rgb(" + Math.round(158 + r() * 22) + "," + Math.round(116 + r() * 16) + "," + Math.round(80 + r() * 14) + ")";
+      g.fillRect(0, y, 512, 64);
+      for (var k = 0; k < 14; k++) {
+        g.strokeStyle = "rgba(90,60,35," + (0.08 + r() * 0.1) + ")"; g.lineWidth = 1 + r() * 1.5;
+        var yy = y + 4 + r() * 56; g.beginPath(); g.moveTo(0, yy);
+        g.bezierCurveTo(170, yy + r() * 6 - 3, 340, yy + r() * 6 - 3, 512, yy + r() * 4 - 2); g.stroke();
+      }
+      g.fillStyle = "rgba(60,38,20,.55)"; g.fillRect(0, y, 512, 2); g.fillRect(r() * 512, y, 2, 64);
+    }
+    var t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(3, 3); t.anisotropy = 4; return t;
+  }
+
+  var floor = new THREE.Mesh(new THREE.PlaneGeometry(RX * 2, RZ1 - RZ0), std(0xffffff, { map: makeWood(), roughness: 0.7 }));
+  floor.rotation.x = -Math.PI / 2; floor.position.set(0, 0, (RZ0 + RZ1) / 2); floor.receiveShadow = true; real.add(floor);
+  var wallMat = std(0xe9e3d7);
+  var back = new THREE.Mesh(new THREE.PlaneGeometry(RX * 2, RH), wallMat); back.position.set(0, RH / 2, RZ0); back.receiveShadow = true; real.add(back);
+  var left = new THREE.Mesh(new THREE.PlaneGeometry(RZ1 - RZ0, RH), wallMat); left.rotation.y = Math.PI / 2; left.position.set(-RX, RH / 2, (RZ0 + RZ1) / 2); left.receiveShadow = true; real.add(left);
+  var right = left.clone(); right.rotation.y = -Math.PI / 2; right.position.x = RX; real.add(right);
+  var ceil = new THREE.Mesh(new THREE.PlaneGeometry(RX * 2, RZ1 - RZ0), std(0xf4f1ea)); ceil.rotation.x = Math.PI / 2; ceil.position.set(0, RH, (RZ0 + RZ1) / 2); real.add(ceil);
+  box(RX * 2, 0.1, 0.02, std(0xcfc6b5), 0, 0.05, RZ0 + 0.01, real);
+  box(1.2, 0.03, 0.4, new THREE.MeshBasicMaterial({ color: 0xffffff }), 0, RH - 0.02, -0.6, real).castShadow = false;
+
+  // ventana
+  var win = new THREE.Group(); win.position.set(-1.9, 1.7, RZ0 + 0.02); real.add(win);
+  win.add(new THREE.Mesh(new THREE.PlaneGeometry(1.4, 1.2), new THREE.MeshBasicMaterial({ color: 0xcfe8ff })));
+  var frameMat = std(0xffffff, { roughness: 0.5 });
+  box(1.5, 0.06, 0.06, frameMat, 0, 0.63, 0.02, win); box(1.5, 0.06, 0.06, frameMat, 0, -0.63, 0.02, win);
+  box(0.06, 1.32, 0.06, frameMat, -0.72, 0, 0.02, win); box(0.06, 1.32, 0.06, frameMat, 0.72, 0, 0.02, win);
+  box(0.04, 1.2, 0.04, frameMat, 0, 0, 0.02, win); box(1.4, 0.04, 0.04, frameMat, 0, 0, 0.02, win);
+  box(1.6, 0.04, 0.16, frameMat, 0, -0.68, 0.07, win);
+
+  // pizarrón
+  var boardC = document.createElement("canvas"); boardC.width = 1024; boardC.height = 512;
+  var boardTex = new THREE.CanvasTexture(boardC);
+  function drawBoard() {
+    var g = boardC.getContext("2d");
+    g.fillStyle = "#f8f8f4"; g.fillRect(0, 0, 1024, 512);
+    g.fillStyle = "#1f4fa8"; g.font = "600 70px Caveat, 'Comic Sans MS', cursive"; g.fillText("IPO · Tema 6", 60, 105);
+    g.font = "600 50px Caveat, 'Comic Sans MS', cursive"; g.fillText("Dispositivos para la interacción", 60, 175);
+    g.strokeStyle = "#1f4fa8"; g.lineWidth = 4; g.beginPath(); g.moveTo(60, 195); g.lineTo(700, 190); g.stroke();
+    g.fillStyle = "#c0392b"; g.fillText("RV → sustituye el entorno", 90, 290);
+    g.fillStyle = "#1d7a4c"; g.fillText("RA → lo aumenta", 90, 370);
+    g.strokeStyle = "#555"; g.lineWidth = 3; g.beginPath(); g.ellipse(840, 340, 110, 70, -0.15, 0, Math.PI * 2); g.stroke();
+    g.fillStyle = "#555"; g.font = "600 40px Caveat, 'Comic Sans MS', cursive"; g.fillText("¿y la VA?", 768, 352);
+    boardTex.needsUpdate = true;
+  }
+  drawBoard();
+  var board = new THREE.Group(); board.position.set(1.25, 1.55, RZ0 + 0.02); real.add(board);
+  board.add(new THREE.Mesh(new THREE.PlaneGeometry(2.2, 1.1), std(0xffffff, { map: boardTex, roughness: 0.35 })));
+  var alu = std(0xb8bcc4, { metalness: 0.4, roughness: 0.4 });
+  box(2.28, 0.04, 0.03, alu, 0, 0.57, 0.01, board); box(2.28, 0.04, 0.03, alu, 0, -0.57, 0.01, board);
+  box(0.04, 1.14, 0.03, alu, -1.12, 0, 0.01, board); box(0.04, 1.14, 0.03, alu, 1.12, 0, 0.01, board);
+  box(2.2, 0.03, 0.08, alu, 0, -0.6, 0.04, board);
+
+  // escritorio
+  var wood = std(0x9a6a45, { roughness: 0.6 });
+  box(1.6, 0.05, 0.8, wood, 0, 0.755, -0.9, real);
+  [[-0.75, -0.35], [0.75, -0.35], [-0.75, 0.35], [0.75, 0.35]].forEach(function (p) { box(0.05, 0.73, 0.05, wood, p[0], 0.365, -0.9 + p[1], real); });
+  var dark = std(0x50555e, { roughness: 0.4, metalness: 0.3 });
+  box(0.34, 0.015, 0.24, dark, -0.4, 0.788, -0.85, real);
+  var scr = box(0.34, 0.22, 0.012, std(0x2b2f36, { roughness: 0.3 }), -0.4, 0.9, -0.975, real); scr.rotation.x = -0.22;
+  var mug = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.1, 20), std(0xff6b81)); mug.position.set(0.65, 0.83, -0.7); mug.castShadow = true; real.add(mug);
+  box(0.22, 0.03, 0.3, std(0x2f5d8a), 0.55, 0.795, -1.1, real); box(0.2, 0.025, 0.28, std(0xd6a23e), 0.56, 0.822, -1.1, real);
+
+  // silla
+  var chairMat = std(0x3a3f4b);
+  box(0.46, 0.05, 0.44, chairMat, 0, 0.46, -0.15, real);
+  box(0.46, 0.45, 0.04, chairMat, 0, 0.72, 0.06, real);
+  [[-0.2, -0.36], [0.2, -0.36], [-0.2, 0.04], [0.2, 0.04]].forEach(function (p) { box(0.03, 0.44, 0.03, dark, p[0], 0.22, p[1] + 0.21 - 0.2, real); });
+
+  // biblioteca
+  var SH = { x: -3.33, z: -1.4 };
+  var shelfMat = std(0xc9a77c, { roughness: 0.7 });
+  box(0.02, 2, 1.2, shelfMat, -3.48, 1, SH.z, real);
+  box(0.32, 2, 0.03, shelfMat, SH.x, 1, SH.z - 0.6, real); box(0.32, 2, 0.03, shelfMat, SH.x, 1, SH.z + 0.6, real);
+  [0.02, 0.5, 1.0, 1.5, 1.98].forEach(function (y) { box(0.32, 0.03, 1.2, shelfMat, SH.x, y, SH.z, real); });
+  var bookCols = [0xa8433a, 0x2f5d8a, 0xd6a23e, 0x3e7a5a, 0x7a4b8c, 0xc96f3b, 0x30343f].map(function (c) { return std(c, { roughness: 0.75 }); });
+  [0.035, 0.515, 1.015, 1.515].forEach(function (y) {
+    var z = -0.56;
+    while (z < 0.52) {
+      var w = 0.04 + rnd() * 0.045, h = 0.26 + rnd() * 0.16;
+      if (rnd() < 0.08) { z += w + 0.02; continue; }
+      box(0.22, h, w, bookCols[Math.floor(rnd() * bookCols.length)], -3.32, y + h / 2, SH.z + z + w / 2, real);
+      z += w + 0.004;
+    }
+  });
+
+  // planta y puerta
+  var pot = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.14, 0.36, 20), std(0xb5653d)); pot.position.set(2.7, 0.18, -1.9); pot.castShadow = true; real.add(pot);
+  var leafMat = std(0x3f8f4e, { flatShading: true });
+  [[0, 0.55, 0, 0.26], [0.12, 0.78, 0.05, 0.2], [-0.1, 0.74, -0.06, 0.18]].forEach(function (l) {
+    var m = new THREE.Mesh(new THREE.IcosahedronGeometry(l[3], 0), leafMat); m.position.set(2.7 + l[0], l[1], -1.9 + l[2]); m.castShadow = true; real.add(m);
+  });
+  var door = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 2.1), std(0x8a6a4e, { roughness: 0.6 })); door.rotation.y = -Math.PI / 2; door.position.set(RX - 0.01, 1.05, 1.9); real.add(door);
+
+  var realLights = new THREE.Group(); scene.add(realLights);
+  realLights.add(new THREE.HemisphereLight(0xfff6ea, 0x8a7258, 0.75));
+  var sun = new THREE.DirectionalLight(0xfff2dc, 0.65); sun.position.set(-2, 4, 3); sun.target.position.set(0, 0, -0.9);
+  sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024);
+  sun.shadow.camera.left = -5; sun.shadow.camera.right = 5; sun.shadow.camera.top = 5; sun.shadow.camera.bottom = -5; sun.shadow.camera.near = 0.5; sun.shadow.camera.far = 15; sun.shadow.bias = -0.0005;
+  realLights.add(sun); realLights.add(sun.target);
+  var lamp = new THREE.PointLight(0xffe2b8, 0.35, 6); lamp.position.set(0, 2.6, -0.6); realLights.add(lamp);
+
+  // ---------- REALIDAD AUMENTADA: hologramas ----------
+  var TEAL = 0x00d9c0, VIOLET = 0x8b5cf6;
+  var holo = new THREE.Group(); holo.visible = false; scene.add(holo);
+  var holoContent = new THREE.Group(); holo.add(holoContent);
+  var fadeMats = [];
+  function reg(mat, base) { mat.userData.base = base; fadeMats.push(mat); return mat; }
+  function glow(c, o) { return reg(new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: o, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }), o); }
+  function lineMat(c, o) { return reg(new THREE.LineBasicMaterial({ color: c, transparent: true, opacity: o, depthWrite: false }), o); }
+
+  var ANCHOR = new THREE.Vector3(0.3, 1.08, -0.95);
+  var model = new THREE.Group(); model.position.copy(ANCHOR); holoContent.add(model);
+  var spin = new THREE.Group(); model.add(spin);
+  spin.add(new THREE.Mesh(new THREE.IcosahedronGeometry(0.15, 0), reg(new THREE.MeshBasicMaterial({ color: VIOLET, transparent: true, opacity: 0.55, depthWrite: false }), 0.55)));
+  spin.add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(0.19, 1)), lineMat(TEAL, 0.95)));
+  var ring1 = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.004, 6, 72), glow(TEAL, 0.9)); ring1.rotation.x = 1.2; model.add(ring1);
+  var ring2 = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.003, 6, 72), glow(VIOLET, 0.9)); ring2.rotation.y = 1.1; model.add(ring2);
+  var base = new THREE.Mesh(new THREE.RingGeometry(0.14, 0.2, 48), glow(TEAL, 0.7)); base.rotation.x = -Math.PI / 2; base.position.y = 0.785 - ANCHOR.y; model.add(base);
+  var beam = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.2, 0.28, 32, 1, true), glow(TEAL, 0.08)); beam.position.y = (0.785 - ANCHOR.y) / 2; model.add(beam);
+
+  function makePanel(pw, ph, ww, draw) {
+    var c = document.createElement("canvas"); c.width = pw; c.height = ph;
+    var ctx = c.getContext("2d"); var tex = new THREE.CanvasTexture(c); tex.minFilter = THREE.LinearFilter;
+    var mat = reg(new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide }), 1);
+    var mesh = new THREE.Mesh(new THREE.PlaneGeometry(ww, ww * ph / pw), mat);
+    var p = { mesh: mesh, w: ww, h: ww * ph / pw, redraw: function (a) { ctx.clearRect(0, 0, pw, ph); draw(ctx, pw, ph, a); tex.needsUpdate = true; } };
+    p.redraw(); return p;
+  }
+  function frame(ctx, w, h) {
+    ctx.fillStyle = "rgba(6,28,38,0.66)"; rr(ctx, 4, 4, w - 8, h - 8, 22); ctx.fill();
+    ctx.strokeStyle = "rgba(0,217,192,0.95)"; ctx.lineWidth = 3; ctx.stroke();
+  }
+  function row(ctx, y, k, v) {
+    ctx.font = "400 26px 'IBM Plex Sans', Calibri, sans-serif"; ctx.fillStyle = "rgba(220,240,240,0.7)"; ctx.fillText(k, 32, y);
+    ctx.font = "500 26px 'IBM Plex Mono', Consolas, monospace"; ctx.fillStyle = "#ffffff"; ctx.textAlign = "right"; ctx.fillText(v, 528, y); ctx.textAlign = "left";
+  }
+  var lastDist = -1;
+  var mainPanel = makePanel(560, 340, 0.6, function (ctx, w, h, dist) {
+    frame(ctx, w, h);
+    ctx.font = "500 22px 'IBM Plex Mono', Consolas, monospace"; ctx.fillStyle = "#00d9c0"; ctx.fillText("HOLOGRAMA ANCLADO", 32, 58);
+    ctx.font = "600 50px 'IBM Plex Sans', Calibri, sans-serif"; ctx.fillStyle = "#ffffff"; ctx.fillText("Modelo 3D", 32, 118);
+    row(ctx, 182, "Superficie", "escritorio");
+    row(ctx, 234, "Distancia a vos", (dist == null ? "—" : fmt(dist) + " m"));
+    row(ctx, 286, "Gesto", "tocar en el aire");
+  });
+  mainPanel.mesh.position.set(0.98, 1.4, -0.95); holoContent.add(mainPanel.mesh);
+  var leaderGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+  var leader = new THREE.Line(leaderGeo, lineMat(TEAL, 0.8)); holoContent.add(leader);
+
+  var boardPanel = makePanel(760, 110, 1.36, function (ctx, w, h) {
+    frame(ctx, w, h);
+    ctx.font = "500 24px 'IBM Plex Mono', Consolas, monospace"; ctx.fillStyle = "#00d9c0"; ctx.fillText("SUPERFICIE VERTICAL DETECTADA", 30, 48);
+    ctx.font = "500 26px 'IBM Plex Sans', Calibri, sans-serif"; ctx.fillStyle = "#ffffff"; ctx.fillText("Pizarrón · 2,2 × 1,1 m", 30, 84);
+  });
+  boardPanel.mesh.position.set(1.25, 2.33, RZ0 + 0.07); holoContent.add(boardPanel.mesh);
+  var bo = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(-1.17, -0.62, 0), new THREE.Vector3(1.17, -0.62, 0), new THREE.Vector3(1.17, 0.62, 0), new THREE.Vector3(-1.17, 0.62, 0)
+  ]), lineMat(TEAL, 0.9));
+  bo.position.set(1.25, 1.55, RZ0 + 0.06); holoContent.add(bo);
+
+  // ruta en el piso
+  var START = new THREE.Vector3(0.9, 0.012, 1.7), END = new THREE.Vector3(-2.85, 0.012, -1.25);
+  var dir = END.clone().sub(START); var routeLen = dir.length();
+  var chevShape = new THREE.Shape();
+  chevShape.moveTo(-0.16, -0.06); chevShape.lineTo(0, 0.08); chevShape.lineTo(0.16, -0.06); chevShape.lineTo(0.16, 0.02); chevShape.lineTo(0, 0.16); chevShape.lineTo(-0.16, 0.02); chevShape.closePath();
+  var chevGeo = new THREE.ShapeGeometry(chevShape); chevGeo.rotateX(-Math.PI / 2);
+  var chevrons = [];
+  for (var i = 0; i < 8; i++) {
+    var cm = glow(TEAL, 0.8);
+    var ch = new THREE.Mesh(chevGeo, cm);
+    ch.position.copy(START).lerp(END, (i + 0.5) / 8);
+    ch.rotation.y = Math.atan2(-dir.x, -dir.z);
+    holoContent.add(ch); chevrons.push(ch);
+  }
+  var shelfPanel = makePanel(520, 170, 0.62, function (ctx, w, h) {
+    frame(ctx, w, h);
+    ctx.font = "500 22px 'IBM Plex Mono', Consolas, monospace"; ctx.fillStyle = "#00d9c0"; ctx.fillText("DESTINO", 30, 52);
+    ctx.font = "600 34px 'IBM Plex Sans', Calibri, sans-serif"; ctx.fillStyle = "#ffffff"; ctx.fillText("Biblioteca del aula", 30, 98);
+    ctx.font = "400 24px 'IBM Plex Sans', Calibri, sans-serif"; ctx.fillStyle = "rgba(220,240,240,0.75)"; ctx.fillText("Ruta marcada en el piso · " + fmt(routeLen) + " m", 30, 140);
+  });
+  shelfPanel.mesh.position.set(-2.85, 2.3, SH.z); holoContent.add(shelfPanel.mesh);
+
+  // mapeo espacial (malla de escaneo)
+  var mapping = new THREE.Group(); holo.add(mapping);
+  var scanPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 10);
+  var mapMat = new THREE.MeshBasicMaterial({ color: TEAL, wireframe: true, transparent: true, opacity: 0.45, depthWrite: false, clippingPlanes: [scanPlane] });
+  var mapLine = new THREE.LineBasicMaterial({ color: TEAL, transparent: true, opacity: 0.85, depthWrite: false, clippingPlanes: [scanPlane] });
+  function wirePlane(w, h, sx, sy, setup) { var m = new THREE.Mesh(new THREE.PlaneGeometry(w, h, sx, sy), mapMat); setup(m); mapping.add(m); }
+  wirePlane(RX * 2, RZ1 - RZ0, 14, 13, function (m) { m.rotation.x = -Math.PI / 2; m.position.set(0, 0.006, (RZ0 + RZ1) / 2); });
+  wirePlane(RX * 2, RH, 14, 6, function (m) { m.position.set(0, RH / 2, RZ0 + 0.012); });
+  wirePlane(RZ1 - RZ0, RH, 13, 6, function (m) { m.rotation.y = Math.PI / 2; m.position.set(-RX + 0.012, RH / 2, (RZ0 + RZ1) / 2); });
+  wirePlane(RZ1 - RZ0, RH, 13, 6, function (m) { m.rotation.y = -Math.PI / 2; m.position.set(RX - 0.012, RH / 2, (RZ0 + RZ1) / 2); });
+  [[1.64, 0.8, 0.84, 0, 0.4, -0.9], [0.5, 0.98, 0.5, 0, 0.49, -0.13], [0.36, 2.02, 1.24, SH.x, 1.01, SH.z], [0.5, 0.95, 0.5, 2.7, 0.475, -1.9]].forEach(function (b) {
+    var l = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(b[0], b[1], b[2])), mapLine); l.position.set(b[3], b[4], b[5]); mapping.add(l);
+  });
+  var sweep = new THREE.Mesh(new THREE.PlaneGeometry(RX * 2, RH), new THREE.MeshBasicMaterial({ color: TEAL, transparent: true, opacity: 0.12, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+  sweep.position.y = RH / 2; mapping.add(sweep);
+
+  // ---------- REALIDAD VIRTUAL: mundo generado ----------
+  var vr = new THREE.Group(); vr.visible = false; scene.add(vr);
+  var groundGeo = new THREE.PlaneGeometry(140, 140, 110, 110);
+  var gp = groundGeo.attributes.position;
+  for (var v = 0; v < gp.count; v++) {
+    var gx = gp.getX(v), gy = gp.getY(v), r = Math.hypot(gx, gy);
+    var hgt = r < 7 ? 0 : (r - 7) * 0.07 * (1.6 + Math.sin(gx * 0.17) + Math.cos(gy * 0.21) + 0.6 * Math.sin((gx + gy) * 0.08));
+    gp.setZ(v, Math.max(0, hgt));
+  }
+  groundGeo.computeVertexNormals();
+  var ground = new THREE.Mesh(groundGeo, std(0x3a2b78, { flatShading: true, roughness: 1 }));
+  ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; vr.add(ground);
+  var pad = new THREE.Mesh(new THREE.CircleGeometry(1.2, 48), new THREE.MeshBasicMaterial({ color: TEAL, transparent: true, opacity: 0.12 }));
+  pad.rotation.x = -Math.PI / 2; pad.position.y = 0.01; vr.add(pad);
+  var padRing = new THREE.Mesh(new THREE.RingGeometry(1.15, 1.22, 64), new THREE.MeshBasicMaterial({ color: TEAL }));
+  padRing.rotation.x = -Math.PI / 2; padRing.position.y = 0.012; vr.add(padRing);
+  var starGeo = new THREE.BufferGeometry(); var sp = [];
+  for (var s = 0; s < 1500; s++) {
+    var th = rnd() * Math.PI * 2, ph = Math.acos(rnd() * 0.95), rad = 80 + rnd() * 20;
+    sp.push(rad * Math.sin(ph) * Math.cos(th), rad * Math.cos(ph), rad * Math.sin(ph) * Math.sin(th));
+  }
+  starGeo.setAttribute("position", new THREE.Float32BufferAttribute(sp, 3));
+  vr.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.35, fog: false })));
+  var planet = new THREE.Mesh(new THREE.SphereGeometry(7, 40, 30), new THREE.MeshBasicMaterial({ color: 0xffb86b, fog: false }));
+  planet.position.set(-22, 20, -62); vr.add(planet);
+  var pring = new THREE.Mesh(new THREE.TorusGeometry(11, 0.25, 8, 90), new THREE.MeshBasicMaterial({ color: 0xff6b81, fog: false }));
+  pring.position.copy(planet.position); pring.rotation.set(1.25, 0.3, 0); vr.add(pring);
+  var crystals = [];
+  for (var k = 0; k < 11; k++) {
+    var col = k % 2 ? TEAL : VIOLET;
+    var cr = new THREE.Mesh(new THREE.OctahedronGeometry(0.35 + rnd() * 0.5, 0), std(col, { emissive: col, emissiveIntensity: 0.35, flatShading: true, roughness: 0.4 }));
+    var ang = (k / 11) * Math.PI * 2 + rnd() * 0.4, dist = 5 + rnd() * 10;
+    cr.position.set(Math.cos(ang) * dist, 1.3 + rnd() * 2.4, Math.sin(ang) * dist - 2);
+    cr.userData = { y: cr.position.y, ph: rnd() * 6 };
+    cr.castShadow = true; vr.add(cr); crystals.push(cr);
+  }
+  var vrLights = new THREE.Group(); vrLights.visible = false; scene.add(vrLights);
+  vrLights.add(new THREE.HemisphereLight(0x9b7bff, 0x120c2c, 1.0));
+  var moonLight = new THREE.DirectionalLight(0xffc58a, 0.7); moonLight.position.set(-5, 8, -6); vrLights.add(moonLight);
+  var vrFog = new THREE.FogExp2(0x15103a, 0.028);
+  var VR_BG = new THREE.Color(0x0d0a26), REAL_BG = new THREE.Color(0x000000);
+
+  // marcador de teletransporte
+  var marker = new THREE.Group(); marker.visible = false; scene.add(marker);
+  var mk1 = new THREE.Mesh(new THREE.RingGeometry(0.25, 0.32, 40), new THREE.MeshBasicMaterial({ color: TEAL, side: THREE.DoubleSide, depthTest: false }));
+  mk1.rotation.x = -Math.PI / 2; marker.add(mk1);
+  var mk2 = new THREE.Mesh(new THREE.CircleGeometry(0.25, 40), new THREE.MeshBasicMaterial({ color: TEAL, transparent: true, opacity: 0.2, side: THREE.DoubleSide, depthTest: false }));
+  mk2.rotation.x = -Math.PI / 2; marker.add(mk2);
+  marker.renderOrder = 10;
+
+  // ---------- estado y UI ----------
+  var state = { mode: "real", visor: false, photo: null, photoAspect: 1, start: 0, teleports: 0 };
+  var clock = new THREE.Clock();
+  var fade = $("#fade");
+
+  function fadeSwap(fn, quick) {
+    if (reduceMotion) { fn(); return; }
+    fade.classList.toggle("quick", !!quick);
+    fade.classList.add("on");
+    setTimeout(function () { fn(); requestAnimationFrame(function () { fade.classList.remove("on"); }); }, quick ? 115 : 230);
+  }
+
+  function applyMode(m) {
+    var prev = state.mode; state.mode = m;
+    if (prev === "rv" && m !== "rv") {
+      var off = camera.position.clone().sub(controls.target);
+      controls.target.copy(HOME.target); camera.position.copy(HOME.target).add(off); controls.update();
+    }
+    var inVR = m === "rv";
+    real.visible = !inVR && !state.photo;
+    realLights.visible = !inVR;
+    vr.visible = inVR; vrLights.visible = inVR;
+    holo.visible = m === "ra";
+    scene.fog = inVR ? vrFog : null;
+    scene.background = inVR ? VR_BG : (state.photo || REAL_BG);
+    marker.visible = false;
+    state.start = clock.getElapsedTime() - (reduceMotion ? 10 : 0);
+    updateUI();
+  }
+  function setMode(m) { if (m !== state.mode) fadeSwap(function () { applyMode(m); }); }
+
+  function updateUI() {
+    var M = MODES[state.mode];
+    document.querySelectorAll(".modes button").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.mode === state.mode)); });
+    $("#modeIdx").textContent = "Modo " + M.n + " de 3";
+    $("#modeName").textContent = M.name;
+    var def = $("#modeDef"); def.textContent = M.def;
+    if (M.src) { var sm = document.createElement("span"); sm.className = "def-src"; sm.textContent = "— " + M.src; def.appendChild(sm); }
+    $("#modeSee").textContent = M.see;
+    $("#rReal").textContent = (state.photo && state.mode !== "rv") ? M.real + " (tu foto)" : M.real;
+    $("#rVirt").textContent = M.virt;
+    $("#rDev").textContent = M.dev;
+    var isVR = state.mode === "rv";
+    $("#rExtraT").hidden = !isVR; $("#rExtra").hidden = !isVR; $("#rExtra").textContent = String(state.teleports);
+    var tip = M.tip;
+    if (state.photo && state.mode !== "rv") tip = "Con tu foto: los hologramas se dibujan sobre la imagen. La foto es fija, así que al girar la vista solo se mueven los hologramas. " + (state.mode === "real" ? "Pasá a Realidad aumentada con la tecla 2." : "");
+    if (isVR && state.visor) tip = "En la vista del visor ves lo que muestra cada lente. Desactivala para teletransportarte con un clic en el suelo.";
+    $("#modeTip").textContent = tip;
+    document.querySelectorAll("#track .stop").forEach(function (s) { s.classList.toggle("on", Number(s.dataset.i) === M.stop); });
+    var chip = $("#chip"); chip.className = "chip " + state.mode; $("#chipText").textContent = M.chip;
+    var vb = $("#visorBtn"); vb.disabled = state.mode === "real"; vb.setAttribute("aria-pressed", String(state.visor && state.mode !== "real"));
+    var showLens = isVR && state.visor, showFov = state.mode === "ra" && state.visor;
+    $("#lenses").hidden = !showLens; $("#fov").hidden = !showFov;
+    var vl = $("#visorLabel");
+    vl.hidden = !(showLens || showFov);
+    vl.textContent = showLens ? "PICO 4 Ultra · una imagen por ojo (2160 × 2160 px c/u) = visión estereoscópica" : "HoloLens 2 · los hologramas solo aparecen dentro del recuadro (≈ 43° × 29°)";
+    $("#hint").classList.toggle("gone", hintGone || showLens || showFov);
+    $("#clearPhoto").hidden = !state.photo;
+    layoutFov();
+  }
+
+  // campo de visión de HoloLens 2 (aprox. 43° × 29°, 52° en diagonal)
+  function fovRect() {
+    var w = stage.clientWidth, h = stage.clientHeight;
+    var tv = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)), th = tv * camera.aspect;
+    var fw = Math.min(1, Math.tan(THREE.MathUtils.degToRad(21.5)) / th);
+    var fh = Math.min(1, Math.tan(THREE.MathUtils.degToRad(14.5)) / tv);
+    var rw = fw * w, rh = fh * h;
+    return { x: (w - rw) / 2, y: (h - rh) / 2, w: rw, h: rh };
+  }
+  function layoutFov() {
+    var r = fovRect(), f = $("#fov");
+    f.style.left = r.x + "px"; f.style.top = r.y + "px"; f.style.width = r.w + "px"; f.style.height = r.h + "px";
+  }
+
+  function fitPhoto() {
+    var t = state.photo; if (!t) return;
+    var ca = stage.clientWidth / Math.max(1, stage.clientHeight), ia = state.photoAspect;
+    if (ia > ca) { var rx = ca / ia; t.repeat.set(rx, 1); t.offset.set((1 - rx) / 2, 0); }
+    else { var ry = ia / ca; t.repeat.set(1, ry); t.offset.set(0, (1 - ry) / 2); }
+  }
+
+  function resize() {
+    var w = stage.clientWidth, h = stage.clientHeight; if (!w || !h) return;
+    renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+    fitPhoto(); layoutFov();
+  }
+  if (window.ResizeObserver) new ResizeObserver(resize).observe(stage); else window.addEventListener("resize", resize);
+  resize();
+
+  // ---------- interacción ----------
+  document.querySelectorAll(".modes button").forEach(function (b) { b.addEventListener("click", function () { setMode(b.dataset.mode); }); });
+  $("#visorBtn").addEventListener("click", function () { state.visor = !state.visor; updateUI(); });
+  $("#recenter").addEventListener("click", function () {
+    controls.target.copy(HOME.target); camera.position.copy(HOME.pos); controls.update();
+  });
+  $("#photo").addEventListener("change", function (e) {
+    var f = e.target.files && e.target.files[0]; if (!f) return;
+    if (!/^image\//.test(f.type)) { $("#modeTip").textContent = "Ese archivo no es una imagen. Elegí una foto en formato JPG o PNG."; return; }
+    var reader = new FileReader();
+    reader.onload = function () {
+      var img = new Image();
+      img.onload = function () {
+        var tex = new THREE.Texture(img); tex.needsUpdate = true; tex.minFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+        if (state.photo) state.photo.dispose();
+        state.photo = tex; state.photoAspect = img.width / img.height; fitPhoto();
+        if (state.mode === "rv") fadeSwap(function () { applyMode("ra"); }); else applyMode(state.mode);
+      };
+      img.onerror = function () { $("#modeTip").textContent = "No se pudo abrir esa imagen. Probá con otra foto en JPG o PNG."; };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(f);
+    e.target.value = "";
+  });
+  $("#clearPhoto").addEventListener("click", function () {
+    if (state.photo) state.photo.dispose(); state.photo = null; applyMode(state.mode);
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+    if (e.key === "1") setMode("real"); else if (e.key === "2") setMode("ra"); else if (e.key === "3") setMode("rv");
+    else if ((e.key === "v" || e.key === "V") && state.mode !== "real") { state.visor = !state.visor; updateUI(); }
+  });
+
+  var hintGone = false, down = null;
+  var ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+  function pick(e) {
+    var r = canvas.getBoundingClientRect();
+    ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+    var hits = ray.intersectObject(ground);
+    if (!hits.length || hits[0].distance > 28 || Math.hypot(hits[0].point.x, hits[0].point.z) > 45) return null;
+    return hits[0];
+  }
+  canvas.addEventListener("pointerdown", function (e) {
+    down = { x: e.clientX, y: e.clientY };
+    if (!hintGone) { hintGone = true; $("#hint").classList.add("gone"); }
+  });
+  canvas.addEventListener("pointermove", function (e) {
+    if (state.mode !== "rv" || state.visor || down) { if (!down) marker.visible = false; return; }
+    var h = pick(e); marker.visible = !!h; if (h) marker.position.set(h.point.x, h.point.y + 0.02, h.point.z);
+  });
+  canvas.addEventListener("pointerleave", function () { marker.visible = false; });
+  canvas.addEventListener("pointerup", function (e) {
+    if (!down) return; var moved = Math.hypot(e.clientX - down.x, e.clientY - down.y); down = null;
+    if (moved > 6 || state.mode !== "rv" || state.visor) return;
+    var h = pick(e); if (!h) return;
+    var p = h.point.clone();
+    fadeSwap(function () {
+      var off = camera.position.clone().sub(controls.target);
+      controls.target.set(p.x, p.y + 1.0, p.z); camera.position.copy(controls.target).add(off); controls.update();
+      marker.visible = false; state.teleports++; updateUI();
+    }, true);
+  });
+
+  // fuentes listas -> redibujar texturas con la tipografía correcta
+  if (document.fonts && document.fonts.load) {
+    Promise.all([
+      document.fonts.load("600 50px Caveat"), document.fonts.load("600 50px 'IBM Plex Sans'"),
+      document.fonts.load("400 26px 'IBM Plex Sans'"), document.fonts.load("500 26px 'IBM Plex Mono'")
+    ]).then(function () { drawBoard(); boardPanel.redraw(); shelfPanel.redraw(); mainPanel.redraw(lastDist < 0 ? null : lastDist); }, function () {});
+  }
+
+  // ---------- render ----------
+  var stereo = new THREE.StereoCamera(); stereo.aspect = 0.5; stereo.eyeSep = 0.064;
+  var tmpV = new THREE.Vector3(), tmpA = new THREE.Vector3();
+
+  function updateRA(now, dt) {
+    var t = now - state.start;
+    if (!state.photo) {
+      var p = clamp(t / 1.6, 0, 1), planeZ = 4.2 - p * 7.0;
+      scanPlane.constant = -planeZ; sweep.position.z = planeZ; sweep.visible = p < 1;
+      var out = clamp((t - 2.0) / 1.2, 0, 1);
+      mapMat.opacity = 0.45 * (1 - out); mapLine.opacity = 0.85 * (1 - out);
+      mapping.visible = out < 1;
+    } else mapping.visible = false;
+    var appear = state.photo ? clamp(t / 0.5, 0, 1) : clamp((t - 1.2) / 0.6, 0, 1);
+    var a = easeOut(appear);
+    for (var i = 0; i < fadeMats.length; i++) fadeMats[i].opacity = fadeMats[i].userData.base * a;
+    for (var c = 0; c < chevrons.length; c++) chevrons[c].material.opacity = a * (0.25 + 0.7 * Math.max(0, Math.sin(now * 3 - c * 0.7)));
+    model.scale.setScalar(0.6 + 0.4 * a);
+    var sp = reduceMotion ? 0.15 : 0.6;
+    spin.rotation.y += dt * sp; spin.rotation.x += dt * sp * 0.4;
+    ring1.rotation.z += dt * sp * 1.4; ring2.rotation.x += dt * sp;
+    mainPanel.mesh.quaternion.copy(camera.quaternion); shelfPanel.mesh.quaternion.copy(camera.quaternion);
+    tmpA.set(-mainPanel.w / 2, -mainPanel.h * 0.15, 0); mainPanel.mesh.localToWorld(tmpA);
+    tmpV.copy(ANCHOR).add(new THREE.Vector3(0.18, 0.05, 0));
+    var pos = leaderGeo.attributes.position; pos.setXYZ(0, tmpV.x, tmpV.y, tmpV.z); pos.setXYZ(1, tmpA.x, tmpA.y, tmpA.z); pos.needsUpdate = true;
+    var d = Math.round(camera.position.distanceTo(ANCHOR) * 10) / 10;
+    if (d !== lastDist) { lastDist = d; mainPanel.redraw(d); }
+  }
+  function updateVR(now) {
+    for (var i = 0; i < crystals.length; i++) {
+      var c = crystals[i];
+      c.position.y = c.userData.y + (reduceMotion ? 0 : Math.sin(now * 0.8 + c.userData.ph) * 0.18);
+      c.rotation.y += reduceMotion ? 0.001 : 0.008;
+    }
+    padRing.material.color.setHSL(0.47, 1, 0.42 + 0.08 * Math.sin(now * 2));
+  }
+
+  function render() {
+    var w = stage.clientWidth, h = stage.clientHeight;
+    renderer.setScissorTest(false); renderer.setViewport(0, 0, w, h);
+    if (state.mode === "rv" && state.visor) {
+      camera.updateMatrixWorld(); stereo.update(camera);
+      renderer.setScissorTest(true);
+      renderer.setScissor(0, 0, w / 2, h); renderer.setViewport(0, 0, w / 2, h); renderer.render(scene, stereo.cameraL);
+      renderer.setScissor(w / 2, 0, w / 2, h); renderer.setViewport(w / 2, 0, w / 2, h); renderer.render(scene, stereo.cameraR);
+      renderer.setScissorTest(false); renderer.setViewport(0, 0, w, h);
+    } else if (state.mode === "ra" && state.visor) {
+      holo.visible = false; renderer.render(scene, camera);
+      var r = fovRect(), bg = scene.background, rv = real.visible;
+      scene.background = null; real.visible = false; holo.visible = true;
+      renderer.autoClear = false; renderer.setScissorTest(true);
+      renderer.setScissor(r.x, h - r.y - r.h, r.w, r.h);
+      renderer.render(scene, camera);
+      renderer.setScissorTest(false); renderer.autoClear = true;
+      scene.background = bg; real.visible = rv;
+    } else {
+      renderer.render(scene, camera);
+    }
+  }
+
+  var last = 0;
+  function tick() {
+    requestAnimationFrame(tick);
+    var now = clock.getElapsedTime(), dt = Math.min(0.05, now - last); last = now;
+    controls.update();
+    if (state.mode === "ra") updateRA(now, dt);
+    else if (state.mode === "rv") updateVR(now);
+    render();
+  }
+  applyMode("real");
+  tick();
+})();
+</script>
+</body>
+</html>
